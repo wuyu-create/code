@@ -15,19 +15,36 @@
 # Contact: ps-license@tuebingen.mpg.de
 import sys
 sys.path.append('.')
-
+import cv2
 import os
 import torch
+import numpy as np
 import pickle as pkl
 import os.path as osp
 from tqdm import tqdm
-import numpy as np
+import torchvision.transforms as transforms
+def convert_cvimg_to_tensor(image):
+    transform = get_default_transform()
+    image = transform(image)
+    return image
+
+def get_default_transform():
+    normalize = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    )
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        normalize,
+    ])
+    return transform
 
 def read_data(folder, set):
     dataset = {
         'shape': [],
         'pose': [],
         'img_path':[],
+        'h':0,
+        'w':0,
     }
     # 取出 文件夹下所有pkl文件的名字。
     '''sequences代表该测试集下所有pkl文件的名称'''
@@ -49,25 +66,33 @@ def read_data(folder, set):
         img_dir = osp.join(folder, 'imageFiles', seq)
         dataset['img_path'].append(img_dir)
         num_frames = len(data['img_frame_ids'])
+        tager, h, w, c = 0
         assert (data['poses2d'][0].shape[0] == num_frames)
         for p_id in range(num_people):
             pose = torch.from_numpy(data['poses'][p_id]).float()
             shape = torch.from_numpy(data['betas'][p_id][:10]).float().repeat(pose.size(0), 1)
             dataset['shape'].append(shape.numpy())
             dataset['pose'].append(pose.numpy())
-            '''
             img_paths = []
             for id in range(num_frames):
                 path = osp.join(img_dir+'/image_{:05d}.jpg'.format(id))
-                img_paths.append(path)
+                img = cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
+                if tager == 0:
+                    h,w,c = img.shape
+                    dataset['h'] = h
+                    dataset['w'] = w
+                    print('the information of',h,w,c)
+                    tager = 1
+                img = convert_cvimg_to_tensor(img).numpy().reshape(-1)
+                img_paths.append(img)
             img_path_array = np.array(img_paths)
             dataset['img_path'].append(img_path_array)
-            '''
 
     for k in dataset.keys():
         ## 连接
-        dataset[k] = np.concatenate(dataset[k])
-        print(k, dataset[k].shape)
+        if k !='h' or 'w':
+            dataset[k] = np.concatenate(dataset[k])
+            print(k, dataset[k].shape)
     return dataset
 
 import pickle
@@ -89,11 +114,11 @@ if __name__ == '__main__':
     dir = 'data/3dpw'
     save = 'data/3dpw_user'
     ## 保存验证数据
-    dataset = read_data(dir, 'validation')
+    dataset,h,w,c = read_data(dir, 'validation')
     save_obj(dataset,save,'vali')
     ## 保存训练数据
-    dataset = read_data(dir, 'train')
+    dataset,h,w,c = read_data(dir, 'train')
     save_obj(dataset, save, 'train')
     ## 保存测试数据
-    dataset = read_data(dir, 'test')
+    dataset,h,w,c = read_data(dir, 'test')
     save_obj(dataset, save, 'test')
